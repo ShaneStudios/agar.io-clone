@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentGameInstance = null;
         }
         
-        currentGameInstance = new Game(mode);
+        currentGameInstance = new Game(mode); 
         try {
             await currentGameInstance.init(playerName);
         } catch (error) {

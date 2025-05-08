@@ -1,22 +1,14 @@
-// REMOVED: const { Engine, Render, Runner, Composite, Events, World, Mouse, MouseConstraint, Body, Vector, Common } = Matter;
-// These are now available globally because entities.js loaded them first.
-
 class Game {
     constructor(mode = 'singleplayer') {
         this.mode = mode;
-        // Use Common (available via entities.js)
-        Common.setDecomp(require('poly-decomp')); 
-        // Use Engine (available via entities.js)
         this.engine = Engine.create({ 
             gravity: { x: 0, y: 0 },
             timing: { timeScale: 1 },
         });
-        // Use World (available via entities.js)
         this.world = this.engine.world; 
 
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
-        // Use Runner (available via entities.js)
         this.runner = Runner.create(); 
 
         this.players = new Map();
@@ -92,7 +84,7 @@ class Game {
                 await this.initSinglePlayer(playerName);
                  this.leaderboardUpdateInterval = setInterval(() => this.updateLeaderboard(), GameConfig.LEADERBOARD_UPDATE_INTERVAL);
             }
-        } else { // Single Player
+        } else { 
             this.usePythonBots = await this.checkPythonBackend();
             await this.initSinglePlayer(playerName);
             this.leaderboardUpdateInterval = setInterval(() => this.updateLeaderboard(), GameConfig.LEADERBOARD_UPDATE_INTERVAL);
@@ -140,7 +132,7 @@ class Game {
             try {
                 const resetResponse = await fetch(`${PYTHON_BACKEND_URL}/bots/reset?count=${GameConfig.BOT_COUNT}`, { method: 'POST' });
                 if (!resetResponse.ok) throw new Error('Failed to reset Python bots');
-                await this.fetchPythonBotsData(true); // Initial fetch
+                await this.fetchPythonBotsData(true); 
             } catch (error) {
                 console.warn("Failed to initialize Python bots, falling back to JS bots:", error.message);
                 this.usePythonBots = false; 
@@ -158,7 +150,7 @@ class Game {
         for (let i = 0; i < GameConfig.BOT_COUNT; i++) {
             const botId = generateUniqueId('jsbot_');
             const botName = `JSBot ${i + 1}`;
-            const bot = new Player(botId, botName, getRandomColor(), this.engine, false, true, false); // isPythonBot = false
+            const bot = new Player(botId, botName, getRandomColor(), this.engine, false, true, false); 
             const botStartPos = getRandomPosition(GameConfig.WORLD_WIDTH, GameConfig.WORLD_HEIGHT, 200);
             bot.addCell(botStartPos.x, botStartPos.y, GameConfig.PLAYER_INITIAL_RADIUS * (0.8 + Math.random() * 0.4));
             this.players.set(botId, bot);
@@ -175,26 +167,18 @@ class Game {
             const currentPythonBotIds = new Set();
             botsData.forEach(botData => {
                 currentPythonBotIds.add(botData.id);
-                // Use Player.fromPlainObject to handle creation/updates
                 Player.fromPlainObject(botData, this.engine, this); 
             });
 
-            // Remove Python bots that are no longer sent by the backend
             this.players.forEach(player => {
                 if (player.isPythonBot && !currentPythonBotIds.has(player.id)) {
-                    player.cells.forEach(c => player.removeCell(c)); // Remove all cells first
-                    this.players.delete(player.id); // Then remove player entry
+                    player.cells.forEach(c => player.removeCell(c)); 
+                    this.players.delete(player.id); 
                 }
             });
 
         } catch (error) {
             console.warn("Error fetching/updating Python bots, potentially switching to JS bots:", error.message);
-            // Optional: Implement logic to switch off Python bots after repeated errors
-            // if (consecutivePythonErrors++ > 5) {
-            //    this.usePythonBots = false;
-            //    if(this.pythonBotUpdateIntervalId) clearInterval(this.pythonBotUpdateIntervalId);
-            //    this.initializeJsBots(); // This might be disruptive
-            // }
         }
     }
 
@@ -209,7 +193,6 @@ class Game {
 
 
     async initMultiplayer(playerName) {
-        // Use optional chaining for safety
         const userId = (await this.supabase.auth.getUser())?.data?.user?.id; 
         const localPlayerId = userId || generateUniqueId('guest_');
 
@@ -242,7 +225,6 @@ class Game {
     }
 
     setupMatterEvents() {
-         // Use Events (available via entities.js)
         Events.on(this.engine, 'collisionStart', (event) => {
             if (!this.gameRunning) return;
             event.pairs.forEach(pair => {
@@ -255,7 +237,6 @@ class Game {
                 this.handleCollision(bodyA.cellInstance, bodyB.cellInstance, pair);
             });
         });
-        // Use Events (available via entities.js)
          Events.on(this.engine, 'collisionEnd', (event) => { 
             if (!this.gameRunning) return;
             event.pairs.forEach(pair => {
@@ -274,7 +255,6 @@ class Game {
         const playerA = cellA.ownerId ? this.players.get(cellA.ownerId) : null;
         const playerB = cellB.ownerId ? this.players.get(cellB.ownerId) : null;
 
-        // Use try-catch for safety as collisions can have edge cases
         try {
             if (playerA && !cellA.isVirus && (cellB.isFood || cellB.isEjectedMass)) {
                 if (cellB.isEjectedMass && cellB.ownerId === playerA.id && (Date.now() - cellB.creationTime < GameConfig.EJECT_SELF_COLLISION_COOLDOWN)) {
@@ -317,7 +297,6 @@ class Game {
     }
 
     handlePlayerCellVsPlayerCell(playerA, cellA, playerB, cellB, pair) {
-        // Guard against collisions involving non-existent bodies
         if (!cellA?.body?.position || !cellB?.body?.position) return; 
         
         const dist = getDistance(cellA.body.position, cellB.body.position);
@@ -330,11 +309,11 @@ class Game {
         if (canAEatB) {
             cellA.updateMass(cellA.mass + cellB.mass);
             playerA.updateTotalMass();
-            playerB.removeCell(cellB); // This will trigger handlePlayerDeath if it's the last cell
+            playerB.removeCell(cellB); 
         } else if (canBEatA) {
             cellB.updateMass(cellB.mass + cellA.mass);
             playerB.updateTotalMass();
-            playerA.removeCell(cellA); // This will trigger handlePlayerDeath if it's the last cell
+            playerA.removeCell(cellA); 
         }
     }
     
@@ -350,7 +329,7 @@ class Game {
             
             largerCell.updateMass(largerCell.mass + smallerCell.mass);
             player.removeCell(smallerCell);
-            if(largerCell && largerCell.body) { // Check if largerCell still exists
+            if(largerCell && largerCell.body) { 
                  largerCell.setMergeCooldown();
             }
             player.updateTotalMass();
@@ -359,7 +338,7 @@ class Game {
 
     handlePlayerCellVsVirus(player, playerCell, virusCell, pair) {
         if (playerCell.radius < virusCell.radius * 0.9) return;
-        if (!virusCell?.body?.position) return; // Guard
+        if (!virusCell?.body?.position) return; 
 
         const numSplits = Math.min(GameConfig.PLAYER_MAX_CELLS - player.cells.length + 1,
                                    Math.min(7, Math.floor(playerCell.mass / radiusToMass(GameConfig.PLAYER_INITIAL_RADIUS / 2))));
@@ -369,10 +348,9 @@ class Game {
         const massPerSplit = originalMass / numSplits;
         const radiusPerSplit = massToRadius(massPerSplit);
 
-        player.removeCell(playerCell); // Remove before adding new cells
+        player.removeCell(playerCell); 
 
         for (let i = 0; i < numSplits; i++) {
-             // Ensure player still exists before adding cell (might have died from other collisions)
             if (!this.players.has(player.id)) break; 
 
             const angle = (i / numSplits) * 2 * Math.PI + (Math.random() - 0.5) * 0.5;
@@ -385,11 +363,9 @@ class Game {
             newSplitCell.setMergeCooldown();
 
             const impulseMagnitude = GameConfig.SPLIT_IMPULSE_FACTOR * newSplitCell.mass * 2;
-             // Use Vector (available via entities.js)
             const impulse = Vector.mult(Vector.normalise({x: Math.cos(angle), y: Math.sin(angle)}), impulseMagnitude); 
             if(newSplitCell.body) Body.applyForce(newSplitCell.body, newSplitCell.body.position, impulse);
         }
-         // Check if player still exists before updating mass
         if (this.players.has(player.id)) { 
              player.updateTotalMass();
         }
@@ -421,7 +397,7 @@ class Game {
 
     initControls() {
         const gameAreaElement = document.getElementById('gameArea');
-        let mousePosition = {x: this.canvas.width / 2, y: this.canvas.height / 2}; // Start at center
+        let mousePosition = {x: this.canvas.width / 2, y: this.canvas.height / 2}; 
 
         const updateMousePosition = (event) => {
              if(!this.gameRunning) return;
@@ -432,10 +408,10 @@ class Game {
         gameAreaElement.addEventListener('mousemove', updateMousePosition);
         gameAreaElement.addEventListener('touchmove', (e) => {
              if (e.touches.length > 0) {
-                 e.preventDefault(); // Prevent screen scrolling on touch
+                 e.preventDefault(); 
                  updateMousePosition(e.touches[0]);
              }
-        }, { passive: false }); // Need passive: false to preventDefault
+        }, { passive: false }); 
         gameAreaElement.addEventListener('touchstart', (e) => {
              if (e.touches.length > 0) {
                  e.preventDefault();
@@ -443,17 +419,14 @@ class Game {
              }
         }, { passive: false });
 
-        // Use Events (available via entities.js)
         Events.on(this.engine, 'beforeUpdate', () => { 
             if (!this.localPlayer || !this.gameRunning) return;
-            // Ensure local player has cells before calculating CoM
             if (this.localPlayer.cells.length === 0) return; 
             const playerCoM = this.localPlayer.getCenterOfMass();
             this.mouseWorldPos.x = playerCoM.x + (mousePosition.x - this.canvas.width / 2) / this.camera.zoom;
             this.mouseWorldPos.y = playerCoM.y + (mousePosition.y - this.canvas.height / 2) / this.camera.zoom;
         });
 
-        // Use a single keydown listener attached to window
         this.keydownListener = (e) => {
             if (!this.localPlayer || this.localPlayer.cells.length === 0 || !this.gameRunning) return;
             if (e.key.toLowerCase() === 'w') {
@@ -473,7 +446,7 @@ class Game {
         let targetX, targetY, targetZoomVal;
 
         if (!this.localPlayer || this.localPlayer.cells.length === 0) {
-            targetX = this.camera.targetX; // Stay where it was or center? Center is better.
+            targetX = this.camera.targetX; 
             targetY = this.camera.targetY;
             targetX = GameConfig.WORLD_WIDTH / 2;
             targetY = GameConfig.WORLD_HEIGHT / 2;
@@ -491,7 +464,6 @@ class Game {
         this.camera.targetY = targetY;
         this.camera.targetZoom = clamp(targetZoomVal, GameConfig.MAX_ZOOM_OUT, GameConfig.MIN_ZOOM_IN);
 
-        // Lerp camera position and zoom
         this.camera.x += (this.camera.targetX - this.camera.x) * GameConfig.CAMERA_SMOOTHING;
         this.camera.y += (this.camera.targetY - this.camera.y) * GameConfig.CAMERA_SMOOTHING;
         this.camera.zoom += (this.camera.targetZoom - this.camera.zoom) * GameConfig.CAMERA_SMOOTHING * 0.5;
@@ -503,7 +475,7 @@ class Game {
         this.ctx.lineWidth = 1;
 
         const scaledGridSize = gridSize * this.camera.zoom;
-        if (scaledGridSize < 4) return; // Don't draw grid if too small
+        if (scaledGridSize < 4) return; 
         
         const screenOffsetX = (this.canvas.width / 2) - (this.camera.x * this.camera.zoom);
         const screenOffsetY = (this.canvas.height / 2) - (this.camera.y * this.camera.zoom);
@@ -511,13 +483,13 @@ class Game {
         const startX = Math.floor(-screenOffsetX / scaledGridSize) * gridSize;
         const startY = Math.floor(-screenOffsetY / scaledGridSize) * gridSize;
 
-        const linesX = Math.ceil(this.canvas.width / scaledGridSize) + 2; // Draw extra lines for buffer
+        const linesX = Math.ceil(this.canvas.width / scaledGridSize) + 2; 
         const linesY = Math.ceil(this.canvas.height / scaledGridSize) + 2;
 
-        this.ctx.beginPath(); // Draw all grid lines in one path
+        this.ctx.beginPath(); 
         for (let i = -1; i <= linesX; i++) {
             const x = screenOffsetX + (startX + i * gridSize) * this.camera.zoom;
-            this.ctx.moveTo(Math.round(x) + 0.5, 0); // Round for sharper lines
+            this.ctx.moveTo(Math.round(x) + 0.5, 0); 
             this.ctx.lineTo(Math.round(x) + 0.5, this.canvas.height);
         }
         for (let i = -1; i <= linesY; i++) {
@@ -585,23 +557,20 @@ class Game {
             
             const borderColor = (cell.ownerId && !cell.canMerge && !cell.isFood && !cell.isVirus && !cell.isEjectedMass) ? shadeColor(cell.color, 30) : shadeColor(cell.color, -20);
             this.ctx.strokeStyle = borderColor;
-            this.ctx.lineWidth = Math.max(0.5, cell.radius / 15); // Thinner border relative to radius
+            this.ctx.lineWidth = Math.max(0.5, cell.radius / 15); 
             this.ctx.stroke();
 
-            // Draw name only if the cell is large enough on screen
             if (cell.ownerId && !cell.isFood && !cell.isVirus && !cell.isEjectedMass && screenRadius > 8) { 
                 const owner = this.players.get(cell.ownerId);
                 if (owner && owner.name) {
                     this.ctx.fillStyle = 'white';
                     this.ctx.textAlign = 'center';
                     this.ctx.textBaseline = 'middle';
-                    // Scale font size based on cell radius but clamp for readability
                     const baseFontSize = clamp(cell.radius / 2.5, 10, 24); 
-                    // Adjust font size slightly based on camera zoom to keep it readable when zoomed out
                     const finalFontSize = clamp(baseFontSize * Math.sqrt(1 / this.camera.zoom), 8, 30); 
                     this.ctx.font = `bold ${finalFontSize.toFixed(0)}px Arial`;
                     this.ctx.shadowColor = 'black';
-                    this.ctx.shadowBlur = 2; // Fixed shadow blur
+                    this.ctx.shadowBlur = 2; 
                     this.ctx.fillText(owner.name, cell.body.position.x, cell.body.position.y);
                     this.ctx.shadowBlur = 0;
                 }
@@ -621,7 +590,6 @@ class Game {
             this.players.forEach(p => { 
                 if (p.isBot && p.cells.length > 0) {
                     if (!p.isPythonBot) p.update();
-                    // No else needed - Python bot movement applied in Player.update based on fetched target
                 }
             });
             if (this.food.size < GameConfig.MAX_FOOD_PELLETS && Math.random() < 0.15) this.spawnFoodPellet(true);
@@ -670,8 +638,8 @@ class Game {
     handlePlayerDeath(player) {
         if (!player) return;
         if (player.isLocal) {
-            if (!this.gameRunning) return; // Already stopped
-            this.gameRunning = false; // Stop game loop etc.
+            if (!this.gameRunning) return; 
+            this.gameRunning = false; 
 
             let deathMessage = "You were eaten!";
             this.showGameOver(player.maxSizeAchieved, deathMessage); 
@@ -682,16 +650,10 @@ class Game {
                 .then(({error}) => {
                     if (error) console.error("Error updating final player stats:", error.message);
                 });
-                 // Attempt to delete the player from DB after a short delay? Or rely on cleanup.
-                 // setTimeout(() => {
-                 //    if(this.supabase) this.supabase.from('players').delete().eq('id', player.id).then();
-                 // }, 5000);
             }
             this.localPlayer = null; 
         } else {
              console.log(`${player.name} was eliminated.`);
-             // Optionally remove the bot/remote player from the players Map immediately
-             // this.players.delete(player.id);
         }
     }
 
@@ -700,7 +662,6 @@ class Game {
         document.getElementById('gameOverMessage').textContent = message;
         document.getElementById('gameOverScreen').style.display = 'flex';
         document.getElementById('gameArea').style.display = 'none';
-         // Don't call stopGame here, let Play Again button or new game start handle cleanup
     }
     
     showStartMenu() {
@@ -709,16 +670,15 @@ class Game {
         document.getElementById('gameOverScreen').style.display = 'none';
         const localMaxMass = localStorage.getItem('agarCloneLocalMaxMass') || 0;
         document.getElementById('localMaxMass').textContent = Math.round(parseFloat(localMaxMass));
-        this.stopGame(); // Clean up any existing game state when showing start menu
+        this.stopGame(); 
     }
 
     stopGame() {
-        if (!this.gameRunning && !this.engine) return; // Avoid stopping twice
+        if (!this.gameRunning && !this.engine) return; 
 
         this.gameRunning = false;
         if (this.runner) Runner.stop(this.runner);
         
-        // Clear intervals first
         if (this.leaderboardUpdateInterval) clearInterval(this.leaderboardUpdateInterval);
         if (this.multiplayerUpdateInterval) clearInterval(this.multiplayerUpdateInterval);
         if (this.staleDataCleanupInterval) clearInterval(this.staleDataCleanupInterval);
@@ -730,7 +690,6 @@ class Game {
         this.objectSpawnInterval = null;
         this.pythonBotUpdateIntervalId = null;
 
-        // Unsubscribe from Supabase
         if (this.supabaseRealtimeChannelPlayers) {
             this.supabase.removeChannel(this.supabaseRealtimeChannelPlayers).catch(e=>console.warn("Error unsub players", e));
             this.supabaseRealtimeChannelPlayers = null;
@@ -740,13 +699,12 @@ class Game {
             this.supabaseRealtimeChannelGameObjects = null;
         }
 
-        // Remove Matter world objects and clear engine
         if (this.engine) {
             World.clear(this.world, false);
             Engine.clear(this.engine);
         }
         
-        // Clear internal game state maps
+        this.players.forEach(p => p.cells.forEach(c => c.destroy(this.engine))); 
         this.players.clear();
         this.food.clear();
         this.viruses.clear();
@@ -754,11 +712,8 @@ class Game {
         
         if(this.localPlayer) this.localPlayer = null;
 
-        // Remove engine event listeners
         if (this.engine) Events.off(this.engine); 
-        // Remove global listeners
         if(this.keydownListener) window.removeEventListener('keydown', this.keydownListener);
-        // Could remove mouse/touch listeners too if needed, but they check gameRunning flag
 
         window.gameInstance = null;
         console.log("Game stopped and cleaned up.");
@@ -774,7 +729,6 @@ class Game {
 
         const playerData = this.localPlayer.toPlainObject();
         const payload = {
-            // id is PK, don't send in update unless upserting
             name: this.localPlayer.name,
             color: this.localPlayer.color,
             max_size_achieved: this.localPlayer.maxSizeAchieved,
@@ -782,7 +736,6 @@ class Game {
             last_seen: new Date().toISOString()
         };
 
-        // Use update instead of upsert after initial creation
         const { error } = await this.supabase.from('players')
             .update(payload)
             .eq('id', this.localPlayer.id);
@@ -801,7 +754,7 @@ class Game {
         if (playersData) {
             playersData.forEach(pData => {
                 if (!pData.cell_data) { console.warn("Player data missing cell_data:", pData.id); return; }
-                Player.fromPlainObject(pData, this.engine, this); // Let fromPlainObject handle creation/update
+                 Player.fromPlainObject(pData, this.engine, this);
             });
         }
 
@@ -820,12 +773,11 @@ class Game {
             if (!this.gameRunning) return;
             const { eventType, new: newRecord, old: oldRecord } = payload;
             const recordId = newRecord?.id || oldRecord?.id;
-            // Also check if the player map already processed this ID (e.g., from initial fetch)
             if (!recordId || (this.localPlayer && recordId === this.localPlayer.id) ) return; 
 
             if (eventType === 'INSERT' || eventType === 'UPDATE') {
                 if (!newRecord.cell_data) { console.warn("Received player update missing cell_data:", recordId); return; }
-                Player.fromPlainObject(newRecord, this.engine, this);
+                Player.fromPlainObject(newRecord, this.engine, this); 
             } else if (eventType === 'DELETE') {
                 const playerToRemove = this.players.get(recordId);
                 if (playerToRemove) {
@@ -888,7 +840,6 @@ class Game {
                  }
             }
         } else {
-            // Only add if it doesn't exist locally already
             if(objectMap.has(id)) return; 
 
             if (objData.type === 'food') this.createFoodPellet(objData.x, objData.y, objData.color, objData.id);
@@ -905,7 +856,7 @@ class Game {
         const { error: deletePlayersError } = await this.supabase.from('players').delete().lt('last_seen', staleTime);
         if (deletePlayersError) console.error("Error cleaning stale players:", deletePlayersError.message);
         
-        const staleObjectTime = new Date(Date.now() - GameConfig.EJECTED_MASS_LIFESPAN * 3).toISOString(); // Longer cleanup time
+        const staleObjectTime = new Date(Date.now() - GameConfig.EJECTED_MASS_LIFESPAN * 3).toISOString(); 
         const { error: deleteObjectsError } = await this.supabase.from('game_objects')
             .delete().lt('created_at', staleObjectTime).in('type', ['ejected_mass', 'food']);
         if (deleteObjectsError) console.error("Error cleaning stale game objects:", deleteObjectsError.message);
@@ -914,7 +865,6 @@ class Game {
     attemptObjectSpawnsMP(specificType = null) {
         if (this.mode !== 'multiplayer' || !this.supabase || !this.localPlayer) return;
 
-        // Simple random chance per client - definitely improve with Edge Functions or leader election for production
         if (specificType === 'food' || (!specificType && Math.random() < 0.3)) {
             if (this.food.size + this.ejectedMass.size < GameConfig.MAX_FOOD_PELLETS * 1.5) this.spawnFoodPellet(false);
         }
@@ -947,7 +897,6 @@ class Game {
                 if (error && error.code !== '23505') {
                      console.error("Error inserting food to DB:", error.message);
                 }
-                 // Realtime sync will add the food pellet if insert is successful
             });
         } else if (isLocalOnly) {
             this.createFoodPellet(pos.x, pos.y, foodColor, foodId);
@@ -959,7 +908,7 @@ class Game {
         if (this.viruses.has(virusId)) return this.viruses.get(virusId);
         const virus = new Cell(x, y, GameConfig.VIRUS_RADIUS, color || '#33dd33', this.engine, {
             id: virusId, isVirus: true,
-            bodyOptions: { isStatic: true, collisionFilter: { category: 0x0004, mask: 0x0001 | 0x0008 } } // Collide Player + Ejected Mass
+            bodyOptions: { isStatic: true, collisionFilter: { category: 0x0004, mask: 0x0001 | 0x0008 } } 
         });
         this.viruses.set(virusId, virus);
         return virus;
@@ -989,7 +938,7 @@ class Game {
             id: massId, isEjectedMass: true, ownerId: ownerId,
             bodyOptions: { 
                 frictionAir: 0.02, 
-                collisionFilter: { category: 0x0008, mask: 0x0001 | 0x0004 } // Ejected Mass Category, Collide Player + Virus
+                collisionFilter: { category: 0x0008, mask: 0x0001 | 0x0004 } 
             }
         });
         this.ejectedMass.set(massId, mass);
@@ -1007,7 +956,6 @@ class Game {
         }
         
         setTimeout(() => {
-            // Check if it still exists before removing
             const existingMass = this.ejectedMass.get(massId);
             if (existingMass) { 
                 this.removeFoodLike(existingMass);

@@ -1,5 +1,4 @@
-// Import ALL necessary Matter.js components here, as this script loads first
-const { Engine, Render, Runner, Composite, Events, World, Mouse, Body, Bodies, Vector, Common } = Matter; // Added Engine, Render, Runner, Events, World, Mouse, Common, Bodies
+const { Engine, Render, Runner, Composite, Events, World, Mouse, Body, Bodies, Vector, Common } = Matter;
 
 class Cell {
     constructor(x, y, radius, color, engine, options = {}) {
@@ -30,19 +29,17 @@ class Cell {
             restitution: 0.1,
             density: 0.001, 
             isSensor: false,
-            render: { // Not used by custom render, but good practice
+            render: {
                 fillStyle: this.color,
                 strokeStyle: shadeColor(this.color, -20),
                 lineWidth: 2
             },
             ...options.bodyOptions
         };
-        // Use Bodies.circle (imported above)
         this.body = Bodies.circle(x, y, this.calculateMatterRadius(radius), bodyOptions); 
         this.body.cellInstance = this;
         Body.setMass(this.body, this.mass / 100);
 
-        // Use Composite (imported above)
         Composite.add(engine.world, this.body); 
 
         if (!this.isFood && !this.isVirus && !this.isEjectedMass) {
@@ -68,7 +65,7 @@ class Cell {
     }
 
     updateMass(newMass) {
-        if (!this.body) return; // Guard against errors if body is destroyed
+        if (!this.body) return;
         if (newMass <= 0) newMass = radiusToMass(1);
         const oldRadius = this.body.circleRadius;
         this.mass = newMass;
@@ -79,26 +76,22 @@ class Cell {
             const scaleFactor = newMatterRadius / oldRadius;
             if (isFinite(scaleFactor) && scaleFactor > 0) {
                  Body.scale(this.body, scaleFactor, scaleFactor);
-                 // Body.scale might not update circleRadius automatically in some versions, so set it manually
                  this.body.circleRadius = newMatterRadius; 
             } else {
                 console.warn(`Invalid scale factor: ${scaleFactor} for cell ${this.id}. Radius: ${newMatterRadius}, Old: ${oldRadius}`);
             }
         }
-        // Ensure mass is updated even if radius didn't change significantly
         Body.setMass(this.body, this.mass / 100); 
     }
 
     applyForceTowards(targetPosition, speedFactor = 0.0002) {
-        if (!this.body || !this.body.position || !targetPosition) return; // More guards
-        // Use Vector (imported above)
+        if (!this.body || !this.body.position || !targetPosition) return;
         const direction = Vector.sub(targetPosition, this.body.position); 
         const distance = Vector.magnitude(direction);
         if (distance < 1) return;
 
         const effectiveRadius = Math.max(10, this.radius);
         const forceMagnitude = clamp(this.mass * speedFactor * (1 / (1 + effectiveRadius / 150)), 0.00001, 0.05);
-        // Use Vector (imported above)
         const force = Vector.mult(Vector.normalise(direction), forceMagnitude); 
         Body.applyForce(this.body, this.body.position, force);
     }
@@ -106,7 +99,6 @@ class Cell {
     destroy(engine) {
         if (this.mergeCooldownTimer) clearTimeout(this.mergeCooldownTimer);
         if (this.body) {
-            // Use Composite (imported above)
             Composite.remove(engine.world, this.body, true); 
             this.body.cellInstance = null;
             this.body = null;
@@ -211,7 +203,6 @@ class Player {
         if (this.isBot && !this.isPythonBot) {
             this.updateBotAI();
         } else if (this.isPythonBot) {
-             // Python bots target is updated externally, just apply force
              this.cells.forEach(cell => {
                 if (cell.body) cell.applyForceTowards(this.target);
              });
@@ -222,7 +213,6 @@ class Player {
                 if (cell.body) cell.applyForceTowards(this.target);
              });
         } else {
-             // Non-local, non-python player - apply force towards synced target
              this.cells.forEach(cell => {
                 if (cell.body) cell.applyForceTowards(this.target);
              });
@@ -236,7 +226,7 @@ class Player {
 
         const cellsToSplit = [...this.cells];
         cellsToSplit.forEach(cell => {
-            if (!cell.body) return; // Cell might have been removed concurrently
+            if (!cell.body) return;
             if (cell.radius < GameConfig.PLAYER_MIN_RADIUS_SPLIT || cell.mass < radiusToMass(GameConfig.PLAYER_MIN_RADIUS_SPLIT) * 1.8) return;
             if (this.cells.length >= GameConfig.PLAYER_MAX_CELLS) return;
 
@@ -246,7 +236,6 @@ class Player {
             cell.setMergeCooldown();
 
             const newRadius = massToRadius(newMass);
-             // Use Vector (imported above)
             const splitDirection = Vector.normalise(Vector.sub(this.target, cell.body.position));
             const splitAngle = Math.atan2(splitDirection.y, splitDirection.x);
             
@@ -259,11 +248,9 @@ class Player {
             newCell.setMergeCooldown();
 
             const impulseMagnitude = GameConfig.SPLIT_IMPULSE_FACTOR * newCell.mass;
-             // Use Vector (imported above)
             const impulse = Vector.mult(splitDirection, impulseMagnitude); 
             
             if(newCell.body) Body.applyForce(newCell.body, newCell.body.position, impulse);
-            // Use Vector (imported above)
             if(cell.body) Body.applyForce(cell.body, cell.body.position, Vector.neg(Vector.mult(impulse, 0.5))); 
         });
         this.updateTotalMass();
@@ -272,7 +259,7 @@ class Player {
     ejectMass(gameInstance) {
         let ejectedCount = 0;
         this.cells.forEach(cell => {
-             if (!cell.body) return; 
+             if (!cell.body) return;
             if (ejectedCount >= 2 && this.cells.length > 1) return;
             if (cell.radius < GameConfig.PLAYER_MIN_RADIUS_EJECT || cell.mass < radiusToMass(GameConfig.PLAYER_MIN_RADIUS_EJECT) + radiusToMass(GameConfig.EJECTED_MASS_RADIUS)) return;
 
@@ -462,7 +449,6 @@ class Player {
             if (cell) {
                 if (cell.body) {
                     const timeSinceLastUpdate = Date.now() - player.lastUpdateTime;
-                    // Apply interpolation/snapping logic (Vector imported in entities.js)
                     if (player.isLocal || player.isPythonBot) { 
                          Body.setPosition(cell.body, { x: cellData.x, y: cellData.y });
                     } else if (timeSinceLastUpdate < GameConfig.MULTIPLAYER_DEAD_RECKONING_THRESHOLD) { 
