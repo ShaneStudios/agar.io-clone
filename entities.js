@@ -18,28 +18,28 @@ class Cell {
         this.creationTime = Date.now();
 
         let label = 'cell';
-        let friction = GameConfig.CELL_FRICTION_AIR; // Default player friction
-        let category = 0x0001; // Player category default
-        let mask = 0xFFFF;     // Collide with everything by default
+        let friction = GameConfig.CELL_FRICTION_AIR; 
+        let category = 0x0001; 
+        let mask = 0xFFFF;     
         let isStatic = false;
 
         if (this.isVirus) {
              label = 'virus';
              friction = 0.1;
              category = 0x0004;
-             mask = 0x0001 | 0x0008; // Collide Player + Ejected Mass
+             mask = 0x0001 | 0x0008; 
              isStatic = true;
         } else if (this.isFood) {
              label = 'food';
              friction = 0.2;
              category = 0x0002;
-             mask = 0x0001; // Only collide Player
+             mask = 0x0001; 
              isStatic = true;
         } else if (this.isEjectedMass) {
              label = 'ejected_mass';
              friction = GameConfig.EJECTED_MASS_FRICTION_AIR;
              category = 0x0008;
-             mask = 0x0001 | 0x0004; // Collide Player + Virus
+             mask = 0x0001 | 0x0004; 
         }
 
         const bodyOptions = {
@@ -216,7 +216,7 @@ class Player {
 
     update(mouseWorldPos) {
         if (this.isBot && !this.isPythonBot) {
-            this.updateBotAI();
+            this.updateBotAI(); 
         } else if (this.isLocal) {
             this.target = mouseWorldPos; 
         }
@@ -226,16 +226,25 @@ class Player {
                  const directionVec = Vector.sub(this.target, cell.body.position);
                  const distance = Vector.magnitude(directionVec);
                  
-                 // Don't move if very close to target to avoid jitter
                  if (distance < cell.radius * 0.1) { 
                      Body.setVelocity(cell.body, { x: 0, y: 0 });
                      return;
                  }
 
                  const direction = Vector.normalise(directionVec);
-                 const speed = calculateSpeed(cell.radius); // Speed based on radius
+                 let speed = calculateSpeed(cell.radius); 
+                 
+                 // Clamp speed to the maximum allowed speed
+                 speed = Math.min(speed, GameConfig.CELL_MAX_SPEED);
+
                  const targetVelocity = Vector.mult(direction, speed);
                  
+                 // Gradually approach target velocity for smoother feel (optional)
+                 // const currentVelocity = cell.body.velocity || {x:0, y:0};
+                 // const lerpedVelocity = Vector.lerp(currentVelocity, targetVelocity, 0.1); // Adjust lerp factor (0.1 = 10% change per step)
+                 // Body.setVelocity(cell.body, lerpedVelocity); 
+
+                 // Or set directly for more responsive control
                  Body.setVelocity(cell.body, targetVelocity); 
             }
         });
@@ -268,12 +277,9 @@ class Player {
             newCell.lastSplitTime = Date.now();
             newCell.setMergeCooldown();
 
-            // Apply velocity impulse for splitting motion
             const impulseVelocity = Vector.mult(splitDirection, GameConfig.SPLIT_VELOCITY_IMPULSE); 
             
-            if(newCell.body) Body.setVelocity(newCell.body, Vector.add(cell.body.velocity || {x:0,y:0}, impulseVelocity)); // Add impulse to current velocity
-            // Apply recoil to original cell (optional)
-            // if(cell.body) Body.setVelocity(cell.body, Vector.add(cell.body.velocity || {x:0,y:0}, Vector.neg(impulseVelocity))); 
+            if(newCell.body) Body.setVelocity(newCell.body, Vector.add(cell.body.velocity || {x:0,y:0}, impulseVelocity)); 
         });
         this.updateTotalMass();
     }
@@ -300,7 +306,6 @@ class Player {
             const velocity = Vector.mult(ejectDirection, GameConfig.EJECTED_MASS_SPEED); 
             if(ejectedCell.body) Body.setVelocity(ejectedCell.body, velocity);
             
-            // Recoil force (less direct than velocity change)
             if(cell.body) Body.applyForce(cell.body, cell.body.position, Vector.neg(Vector.mult(velocity, ejectedCell.mass / 15))); 
             ejectedCount++;
         });
@@ -483,12 +488,11 @@ class Player {
                     } else {
                         Body.setPosition(cell.body, { x: cellData.x, y: cellData.y });
                     }
-                    // Update velocity for remote players for slightly smoother visuals even with interpolation
                     if (!player.isLocal && cell.body.velocity) {
                         const direction = Vector.normalise(Vector.sub(player.target, cell.body.position));
                         const speed = calculateSpeed(cell.radius);
                         const targetVelocity = Vector.mult(direction, speed);
-                        Body.setVelocity(cell.body, Vector.lerp(cell.body.velocity, targetVelocity, 0.1)); // Lerp velocity too
+                        Body.setVelocity(cell.body, Vector.lerp(cell.body.velocity, targetVelocity, 0.1)); 
                     }
 
                 } else {

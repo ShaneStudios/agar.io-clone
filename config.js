@@ -14,16 +14,16 @@ const GameConfig = {
     PLAYER_MIN_RADIUS_SPLIT: 25,
     PLAYER_MIN_RADIUS_EJECT: 20,
     PLAYER_MAX_CELLS: 16,
-    CELL_BASE_SPEED: 4.0, // Slightly increased base speed
-    // Speed = BASE / (1 + (Radius / FACTOR)) - adjust factor
-    CELL_SPEED_RADIUS_FACTOR: 70, // Speed decreases relative to radius increase
-    CELL_FRICTION_AIR: 0.05, // Increased friction for more Agar.io-like slowdown
+    CELL_BASE_SPEED: 4.0, 
+    CELL_SPEED_RADIUS_FACTOR: 70, 
+    CELL_MAX_SPEED: 6.0,
+    CELL_FRICTION_AIR: 0.05, 
     EJECTED_MASS_RADIUS: 6,
-    EJECTED_MASS_SPEED: 15, // Speed for setVelocity impulse
+    EJECTED_MASS_SPEED: 15, 
     EJECTED_MASS_FRICTION_AIR: 0.03,
     EJECTED_MASS_LIFESPAN: 20 * 1000,
     EJECT_SELF_COLLISION_COOLDOWN: 1000,
-    SPLIT_VELOCITY_IMPULSE: 7, // Velocity impulse factor when splitting
+    SPLIT_VELOCITY_IMPULSE: 7, 
     MERGE_COOLDOWN_BASE: 15 * 1000,
     MERGE_COOLDOWN_PER_MASS_FACTOR: 0.01,
     BOT_COUNT: 10,
