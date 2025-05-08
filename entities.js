@@ -445,8 +445,13 @@ class Player {
     static fromPlainObject(obj, engine, gameInstance) {
         let player = gameInstance.players.get(obj.id);
         
-        // Ensure obj.cells exists and is an array before proceeding
-        const cellsData = Array.isArray(obj.cells) ? obj.cells : [];
+        // Ensure obj.cell_data exists before trying to access obj.cell_data.cells
+        const cell_data = obj.cell_data || {};
+        const cellsData = Array.isArray(cell_data.cells) ? cell_data.cells : [];
+        // Use target from cell_data if available, otherwise default
+        const targetData = cell_data.target || {x: 0, y: 0}; 
+        // Use totalMass from cell_data if available, otherwise default
+        const totalMassData = cell_data.totalMass || 0; 
 
         if (!player) {
             player = new Player(obj.id, obj.name, obj.color, engine, false, obj.isBot, obj.isPythonBot); 
@@ -455,9 +460,9 @@ class Player {
             player.name = obj.name;
             player.color = obj.color;
             player.isPythonBot = obj.isPythonBot || false; 
-            player.maxSizeAchieved = Math.max(player.maxSizeAchieved, obj.maxSizeAchieved || 0);
-            player.totalMass = obj.totalMass || 0;
-            player.target = obj.target || player.target;
+            player.maxSizeAchieved = Math.max(player.maxSizeAchieved, obj.max_size_achieved || 0);
+            player.totalMass = totalMassData; // Use totalMass from data
+            player.target = targetData; // Use target from data
             player.lastUpdateTime = obj.lastUpdateTime || player.lastUpdateTime;
         }
     
@@ -506,6 +511,10 @@ class Player {
                 cell.color = player.color;
             }
         });
+        // Update total mass based on synced cells if not provided directly (though it should be)
+        if(player.totalMass === 0 && cellsData.length > 0) {
+             player.updateTotalMass();
+        }
         return player;
     }
 }

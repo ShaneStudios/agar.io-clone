@@ -61,29 +61,41 @@ class Game {
     }
 
     async init(playerName) {
-        this.gameRunning = true;
+        // Reset state before init attempt
+        this.stopGame(); // Call stopGame first to clean everything up
+        this.gameRunning = true; // Set running flag *after* cleanup
+
         this.setupMatterEvents(); 
         this.initControls();
 
         if (this.mode === 'multiplayer') {
             if (!this.supabase) {
                 alert("Supabase client not initialized. Cannot start multiplayer.");
-                this.showStartMenu();
+                this.showStartMenu(); // stopGame was already called
                 return;
             }
             try {
                 await this.initMultiplayer(playerName);
+                // Intervals started only on successful init
                 this.leaderboardUpdateInterval = setInterval(() => this.updateLeaderboard(), GameConfig.LEADERBOARD_UPDATE_INTERVAL);
                 this.multiplayerUpdateInterval = setInterval(() => this.sendMultiplayerUpdate(), GameConfig.MULTIPLAYER_UPDATE_INTERVAL);
                 this.staleDataCleanupInterval = setInterval(() => this.cleanupStaleData(), GameConfig.STALE_PLAYER_CLEANUP_INTERVAL);
                 this.objectSpawnInterval = setInterval(() => this.attemptObjectSpawnsMP(), GameConfig.OBJECT_SPAWN_ATTEMPT_INTERVAL);
-                await this.cleanupStaleData();
+                await this.cleanupStaleData(); // Initial cleanup
             } catch (error) {
                 console.error("Multiplayer Initialization Error:", error);
-                alert(`Failed to start multiplayer game: ${error.message || 'Unknown error'}. Falling back to Single Player.`); // Display error message
+                alert(`Failed to start multiplayer game: ${error.message || 'Unknown error'}. Falling back to Single Player.`); 
+                // Cleanup again before trying single player
+                this.stopGame(); 
+                this.gameRunning = true; // Set running again for SP
                 this.mode = 'singleplayer';
-                await this.initSinglePlayer(playerName);
+                // Re-check Python backend status specifically for SP fallback
+                this.usePythonBots = await this.checkPythonBackend(); 
+                await this.initSinglePlayer(playerName); // Init single player
                  this.leaderboardUpdateInterval = setInterval(() => this.updateLeaderboard(), GameConfig.LEADERBOARD_UPDATE_INTERVAL);
+                 if (this.usePythonBots) {
+                    this.pythonBotUpdateIntervalId = setInterval(() => this.fetchPythonBotsData(), GameConfig.PYTHON_BOT_UPDATE_INTERVAL);
+                 }
             }
         } else { 
             this.usePythonBots = await this.checkPythonBackend();
@@ -94,14 +106,16 @@ class Game {
             }
         }
 
-        // Only start game loop if initialization didn't fall back unexpectedly or error out before this point
-        if (this.gameRunning) { 
+        if (this.gameRunning) { // Check if still running (might have failed/stopped)
             Runner.run(this.runner, this.engine);
             this.gameLoop();
 
             document.getElementById('gameArea').style.display = 'block';
             document.getElementById('startMenu').style.display = 'none';
             document.getElementById('gameOverScreen').style.display = 'none';
+        } else {
+             // If something went wrong and gameRunning became false, ensure start menu shown
+             this.showStartMenu();
         }
     }
 
@@ -126,6 +140,21 @@ class Game {
 
 
     async initSinglePlayer(playerName) {
+        // Reset necessary state if called during fallback
+        this.players.clear(); 
+        this.food.clear();
+        this.viruses.clear();
+        this.ejectedMass.clear();
+        // Reset camera
+         this.camera = {
+            x: GameConfig.WORLD_WIDTH / 2,
+            y: GameConfig.WORLD_HEIGHT / 2,
+            zoom: 1,
+            targetZoom: 1,
+            targetX: GameConfig.WORLD_WIDTH / 2,
+            targetY: GameConfig.WORLD_HEIGHT / 2,
+        };
+
         const playerId = generateUniqueId('local_');
         this.localPlayer = new Player(playerId, playerName, getRandomColor(), this.engine, true, false);
         const startPos = getRandomPosition(GameConfig.WORLD_WIDTH, GameConfig.WORLD_HEIGHT, 200);
@@ -206,7 +235,7 @@ class Game {
         this.localPlayer.addCell(startPos.x, startPos.y, GameConfig.PLAYER_INITIAL_RADIUS);
         this.players.set(localPlayerId, this.localPlayer);
 
-        await this.sendInitialPlayerData(); // Send data *before* fetching others
+        await this.sendInitialPlayerData(); 
         await this.fetchInitialMultiplayerState();
         this.subscribeToChanges();
     }
@@ -226,7 +255,6 @@ class Game {
             },
             last_seen: new Date().toISOString()
         };
-        // Use upsert for the initial send in case the player record already exists (e.g., reconnect)
         const { error } = await this.supabase.from('players').upsert(payload, { onConflict: 'id' }); 
         if (error) {
             console.error("Error sending initial player data:", error);
@@ -238,20 +266,24 @@ class Game {
         Events.on(this.engine, 'collisionStart', (event) => {
             if (!this.gameRunning) return;
             event.pairs.forEach(pair => {
+                // Check if bodies still exist before accessing cellInstance
                 const bodyA = pair.bodyA;
                 const bodyB = pair.bodyB;
                 
-                if (bodyA.cellInstance) bodyA.cellInstance.collidingWith = bodyB.cellInstance;
-                if (bodyB.cellInstance) bodyB.cellInstance.collidingWith = bodyA.cellInstance;
+                if (bodyA?.cellInstance) bodyA.cellInstance.collidingWith = bodyB?.cellInstance;
+                if (bodyB?.cellInstance) bodyB.cellInstance.collidingWith = bodyA?.cellInstance;
 
-                this.handleCollision(bodyA.cellInstance, bodyB.cellInstance, pair);
+                // Check both bodies still have cellInstances before handling
+                if (bodyA?.cellInstance && bodyB?.cellInstance) {
+                   this.handleCollision(bodyA.cellInstance, bodyB.cellInstance, pair);
+                }
             });
         });
          Events.on(this.engine, 'collisionEnd', (event) => { 
             if (!this.gameRunning) return;
             event.pairs.forEach(pair => {
-                if (pair.bodyA.cellInstance) pair.bodyA.cellInstance.collidingWith = null;
-                if (pair.bodyB.cellInstance) pair.bodyB.cellInstance.collidingWith = null;
+                if (pair.bodyA?.cellInstance) pair.bodyA.cellInstance.collidingWith = null;
+                if (pair.bodyB?.cellInstance) pair.bodyB.cellInstance.collidingWith = null;
             });
         });
         Events.on(this.engine, 'afterUpdate', () => {
@@ -274,7 +306,8 @@ class Game {
     }
 
     handleCollision(cellA, cellB, pair) {
-        if (!cellA || !cellB) return;
+        // Already checked cellA and cellB exist in setupMatterEvents
+        if (!cellA.body || !cellB.body) return; // Double check bodies are still valid
 
         const order = (c) => c.isFood ? 0 : (c.isEjectedMass ? 1 : (c.isVirus ? 2 : 3));
         if (order(cellA) < order(cellB)) {[cellA, cellB] = [cellB, cellA];}
@@ -287,44 +320,45 @@ class Game {
                 if (cellB.isEjectedMass && cellB.ownerId === playerA.id && (Date.now() - cellB.creationTime < GameConfig.EJECT_SELF_COLLISION_COOLDOWN)) {
                     return;
                 }
-                // Make sure the colliding cell still exists (hasn't been eaten in same tick)
-                if (cellA.body && cellB.body && cellA.radius > cellB.radius * 0.8) { 
+                if (cellA.radius > cellB.radius * 0.8) {
                      this.handleEatFoodLike(playerA, cellA, cellB);
                 }
             }
             else if (playerA && playerB && playerA.id !== playerB.id && !cellA.isVirus && !cellB.isVirus) {
-                 // Make sure both cells still exist before processing collision
-                 if (cellA.body && cellB.body) {
+                 if (cellA.body && cellB.body) { // Re-check bodies valid
                     this.handlePlayerCellVsPlayerCell(playerA, cellA, playerB, cellB, pair);
                  }
             }
             else if (playerA && playerB && playerA.id === playerB.id && !cellA.isVirus && !cellB.isVirus && cellA.id !== cellB.id) {
-                 // Make sure both cells still exist before processing collision
-                if (cellA.body && cellB.body) {
+                if (cellA.body && cellB.body) { // Re-check bodies valid
                     this.handleOwnCellCollision(playerA, cellA, cellB, pair);
                 }
             }
             else if (playerA && !cellA.isVirus && cellB.isVirus) {
-                 // Make sure both cells still exist before processing collision
-                 if (cellA.body && cellB.body) {
+                 if (cellA.body && cellB.body) { // Re-check bodies valid
                     this.handlePlayerCellVsVirus(playerA, cellA, cellB, pair);
                  }
             }
         } catch (e) {
-            console.error("Error during collision handling:", e, cellA, cellB);
+            console.error("Error during collision handling:", e, cellA?.id, cellB?.id);
         }
     }
     
     handleEatFoodLike(player, eatingPlayerCell, foodLikeCell) {
         if (!player || player.cells.length === 0 || !eatingPlayerCell || !eatingPlayerCell.body || !foodLikeCell || !foodLikeCell.body) return;
 
-        // Immediately disable further collisions for the food item
-        Body.set(foodLikeCell.body, 'collisionFilter', { group: -1, category: 0, mask: 0 }); // Make it non-collidable
+        Body.set(foodLikeCell.body, 'collisionFilter', { group: -1, category: 0, mask: 0 }); 
 
         eatingPlayerCell.updateMass(eatingPlayerCell.mass + foodLikeCell.mass);
         player.updateTotalMass();
         
         const foodLikeId = foodLikeCell.id;
+        
+        // Immediately remove from game map
+        let map = foodLikeCell.isFood ? this.food : this.ejectedMass;
+        map.delete(foodLikeId);
+
+        // Queue body removal
         this.removeFoodLike(foodLikeCell); 
 
         if (this.mode === 'multiplayer' && this.supabase) {
@@ -332,7 +366,6 @@ class Game {
                 if (error) console.error(`Error deleting consumed ${foodLikeCell.label} from DB:`, foodLikeId, error.message);
             });
         } else if (this.mode === 'singleplayer' && foodLikeCell.isFood) {
-            // Respawn food a bit later to avoid instant respawn if player stays
             setTimeout(() => {
                 if(this.gameRunning) this.spawnFoodPellet(true);
             }, 100); 
@@ -350,13 +383,11 @@ class Game {
         const canBEatA = radiusB > radiusA * 1.1 && dist < radiusB - radiusA * 0.5;
 
         if (canAEatB) {
-            // Make cellB non-collidable immediately
             Body.set(cellB.body, 'collisionFilter', { group: -1, category: 0, mask: 0 }); 
             cellA.updateMass(cellA.mass + cellB.mass);
             playerA.updateTotalMass();
             playerB.removeCell(cellB); 
         } else if (canBEatA) {
-            // Make cellA non-collidable immediately
             Body.set(cellA.body, 'collisionFilter', { group: -1, category: 0, mask: 0 });
             cellB.updateMass(cellB.mass + cellA.mass);
             playerB.updateTotalMass();
@@ -374,7 +405,6 @@ class Game {
         if (dist < combinedRadius * 0.75) {
             const [smallerCell, largerCell] = cellA.mass < cellB.mass ? [cellA, cellB] : [cellB, cellA];
             
-            // Make smaller cell non-collidable immediately
             if(smallerCell.body) Body.set(smallerCell.body, 'collisionFilter', { group: -1, category: 0, mask: 0 }); 
 
             largerCell.updateMass(largerCell.mass + smallerCell.mass);
@@ -390,20 +420,19 @@ class Game {
         if (playerCell.radius < virusCell.radius * 0.9) return;
         if (!virusCell?.body?.position || !playerCell?.body) return; 
 
-        // Make playerCell non-collidable immediately before removing
         Body.set(playerCell.body, 'collisionFilter', { group: -1, category: 0, mask: 0 }); 
 
         const numSplits = Math.min(GameConfig.PLAYER_MAX_CELLS - player.cells.length + 1,
                                    Math.min(7, Math.floor(playerCell.mass / radiusToMass(GameConfig.PLAYER_INITIAL_RADIUS / 2))));
         if (numSplits <= 1) {
-            player.removeCell(playerCell); // Still remove if can't split
+            player.removeCell(playerCell); 
             return;
         }
 
         const originalMass = playerCell.mass;
         const massPerSplit = originalMass / numSplits;
         const radiusPerSplit = massToRadius(massPerSplit);
-        const originalPosition = {...playerCell.body.position}; // Store position before removing
+        const originalPosition = {...playerCell.body.position}; 
 
         player.removeCell(playerCell); 
 
@@ -411,7 +440,6 @@ class Game {
             if (!this.players.has(player.id)) break; 
 
             const angle = (i / numSplits) * 2 * Math.PI + (Math.random() - 0.5) * 0.5;
-             // Spawn new cells slightly offset from original cell's position, not virus's
             const offset = radiusPerSplit * 0.5; 
             const newX = originalPosition.x + Math.cos(angle) * offset;
             const newY = originalPosition.y + Math.sin(angle) * offset;
@@ -436,7 +464,6 @@ class Game {
             });
             this.attemptObjectSpawnsMP('virus');
         } else {
-             // Respawn virus slightly delayed
              setTimeout(() => {
                  if(this.gameRunning) this.spawnVirus(true);
              }, 500);
@@ -539,24 +566,20 @@ class Game {
         const scaledGridSize = gridSize * this.camera.zoom;
         if (scaledGridSize < 4) return; 
         
-        // Calculate world coordinates of the view boundaries
         const viewLeft = this.camera.x - (this.canvas.width / 2) / this.camera.zoom;
         const viewTop = this.camera.y - (this.canvas.height / 2) / this.camera.zoom;
         const viewRight = this.camera.x + (this.canvas.width / 2) / this.camera.zoom;
         const viewBottom = this.camera.y + (this.canvas.height / 2) / this.camera.zoom;
 
-        // Calculate starting grid lines in world coordinates
         const startGridX = Math.floor(viewLeft / gridSize) * gridSize;
         const startGridY = Math.floor(viewTop / gridSize) * gridSize;
 
         this.ctx.beginPath(); 
-        // Draw vertical lines
         for (let x = startGridX; x < viewRight; x += gridSize) {
              const screenX = (x - this.camera.x) * this.camera.zoom + this.canvas.width / 2;
              this.ctx.moveTo(Math.round(screenX) + 0.5, 0); 
              this.ctx.lineTo(Math.round(screenX) + 0.5, this.canvas.height);
         }
-        // Draw horizontal lines
         for (let y = startGridY; y < viewBottom; y += gridSize) {
             const screenY = (y - this.camera.y) * this.camera.zoom + this.canvas.height / 2;
             this.ctx.moveTo(0, Math.round(screenY) + 0.5);
@@ -569,7 +592,6 @@ class Game {
         this.ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
         this.ctx.lineWidth = Math.max(2, 5 * this.camera.zoom);
         
-        // Use world coordinates directly within the transformed context
         this.ctx.strokeRect(0, 0, GameConfig.WORLD_WIDTH, GameConfig.WORLD_HEIGHT); 
     }
 
@@ -739,7 +761,7 @@ class Game {
     }
 
     stopGame() {
-        if (!this.gameRunning && !this.engine) return; 
+        if (!this.gameRunning && !this.engine && this.players.size === 0) return; 
 
         this.gameRunning = false;
         if (this.runner) Runner.stop(this.runner);
@@ -765,20 +787,26 @@ class Game {
         }
 
         if (this.bodiesToRemove?.size > 0) {
-            this.bodiesToRemove.forEach(body => {
-                 if (body && body.world) { 
+             this.bodiesToRemove.forEach(body => {
+                 if (body && body.world && this.engine?.world) { 
                      Composite.remove(this.engine.world, body, true);
                  }
-            });
+             });
             this.bodiesToRemove.clear();
         }
 
         if (this.engine) {
             World.clear(this.world, false);
             Engine.clear(this.engine);
+            // Manually ensure world composites are cleared if World.clear isn't enough
+            if (this.world) { 
+                 this.world.bodies = [];
+                 this.world.constraints = [];
+                 this.world.composites = [];
+            }
         }
         
-        this.players.forEach(p => p.cells.forEach(c => c.destroy(this.engine))); 
+        this.players.forEach(p => p.cells.forEach(c => { if(c.mergeCooldownTimer) clearTimeout(c.mergeCooldownTimer); } )); 
         this.players.clear();
         this.food.clear();
         this.viruses.clear();
@@ -788,6 +816,7 @@ class Game {
 
         if (this.engine) Events.off(this.engine); 
         if(this.keydownListener) window.removeEventListener('keydown', this.keydownListener);
+        this.keydownListener = null; // Clear reference
 
         window.gameInstance = null;
         console.log("Game stopped and cleaned up.");
@@ -827,12 +856,12 @@ class Game {
         }
         if (playersData) {
             playersData.forEach(pData => {
-                // Add check for pData.cell_data before accessing .cells
-                if (!pData.cell_data || !Array.isArray(pData.cell_data.cells)) { 
-                    console.warn("Player data missing or invalid cell_data.cells:", pData.id); 
-                    // Optionally assign default values if needed, or just skip this player
-                    pData.cell_data = { cells: [], target: {x:0, y:0}, totalMass: 0 }; 
+                 // Check pData before passing to fromPlainObject
+                if (!pData || typeof pData !== 'object' ) { 
+                    console.warn("Invalid player data received from DB:", pData); 
+                    return; 
                 }
+                // Let fromPlainObject handle internal checks
                  Player.fromPlainObject(pData, this.engine, this);
             });
         }
@@ -855,11 +884,11 @@ class Game {
             if (!recordId || (this.localPlayer && recordId === this.localPlayer.id) ) return; 
 
             if (eventType === 'INSERT' || eventType === 'UPDATE') {
-                // Add check for newRecord.cell_data before accessing .cells
-                if (!newRecord.cell_data || !Array.isArray(newRecord.cell_data.cells)) { 
-                    console.warn("Received player update missing or invalid cell_data.cells:", recordId); 
+                 // Check newRecord before passing to fromPlainObject
+                 if (!newRecord || typeof newRecord !== 'object' ) { 
+                    console.warn("Invalid player data received from realtime:", newRecord); 
                     return; 
-                }
+                 }
                 Player.fromPlainObject(newRecord, this.engine, this); 
             } else if (eventType === 'DELETE') {
                 const playerToRemove = this.players.get(recordId);
