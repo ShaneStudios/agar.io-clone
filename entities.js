@@ -24,7 +24,8 @@ class Cell {
 
         const bodyOptions = {
             label: label,
-            frictionAir: this.isVirus ? 0.1 : (this.isFood ? 0.2 : 0.03),
+            // Use configured friction
+            frictionAir: this.isVirus ? 0.1 : (this.isFood ? 0.2 : GameConfig.CELL_FRICTION_AIR), 
             friction: 0.1,
             restitution: 0.1,
             density: 0.001, 
@@ -84,23 +85,20 @@ class Cell {
         Body.setMass(this.body, this.mass / 100); 
     }
 
-    applyForceTowards(targetPosition, speedFactor = 0.0002) {
-        if (!this.body || !this.body.position || !targetPosition) return;
-        const direction = Vector.sub(targetPosition, this.body.position); 
-        const distance = Vector.magnitude(direction);
-        if (distance < 1) return;
-
-        const effectiveRadius = Math.max(10, this.radius);
-        const forceMagnitude = clamp(this.mass * speedFactor * (1 / (1 + effectiveRadius / 150)), 0.00001, 0.05);
-        const force = Vector.mult(Vector.normalise(direction), forceMagnitude); 
-        Body.applyForce(this.body, this.body.position, force);
-    }
+    // REMOVED applyForceTowards - no longer used for player movement
 
     destroy(engine) {
         if (this.mergeCooldownTimer) clearTimeout(this.mergeCooldownTimer);
         if (this.body) {
-            Composite.remove(engine.world, this.body, true); 
-            this.body.cellInstance = null;
+            // Add to removal queue instead of removing directly
+            if (window.gameInstance) {
+                window.gameInstance.queueBodyRemoval(this.body);
+            } else {
+                 // Fallback if game instance isn't available (shouldn't happen in normal flow)
+                 console.warn("Game instance not found during cell destroy, removing body directly (might cause errors).");
+                 Composite.remove(engine.world, this.body, true); 
+            }
+            this.body.cellInstance = null; // Still break reference
             this.body = null;
         }
     }
@@ -145,7 +143,7 @@ class Player {
         const index = this.cells.findIndex(c => c.id === cellInstance.id);
         if (index !== -1) {
             const [removedCell] = this.cells.splice(index, 1);
-            removedCell.destroy(this.engine);
+            removedCell.destroy(this.engine); // destroy now queues removal
             this.updateTotalMass();
         }
         if (this.cells.length === 0 && !this.isBot) {
@@ -201,23 +199,23 @@ class Player {
 
     update(mouseWorldPos) {
         if (this.isBot && !this.isPythonBot) {
-            this.updateBotAI();
-        } else if (this.isPythonBot) {
-             this.cells.forEach(cell => {
-                if (cell.body) cell.applyForceTowards(this.target);
-             });
+            this.updateBotAI(); // Bot AI sets its own target
+        } else if (this.isLocal) {
+            this.target = mouseWorldPos; // Local player uses mouse
         }
-         else if (this.isLocal) {
-            this.target = mouseWorldPos;
-             this.cells.forEach(cell => {
-                if (cell.body) cell.applyForceTowards(this.target);
-             });
-        } else {
-             this.cells.forEach(cell => {
-                if (cell.body) cell.applyForceTowards(this.target);
-             });
-        }
+        // Python bots and remote players have target set externally
 
+        // Apply velocity-based movement to all cells
+        this.cells.forEach(cell => {
+            if (cell.body && cell.body.position) {
+                 const direction = Vector.normalise(Vector.sub(this.target, cell.body.position));
+                 const speed = calculateSpeed(cell.mass); // Calculate speed based on individual cell mass
+                 const targetVelocity = Vector.mult(direction, speed);
+                 
+                 // Apply velocity directly
+                 Body.setVelocity(cell.body, targetVelocity); 
+            }
+        });
         this.lastUpdateTime = Date.now();
     }
 
@@ -247,7 +245,8 @@ class Player {
             newCell.lastSplitTime = Date.now();
             newCell.setMergeCooldown();
 
-            const impulseMagnitude = GameConfig.SPLIT_IMPULSE_FACTOR * newCell.mass;
+            // Apply an impulse (brief force) for splitting motion
+            const impulseMagnitude = GameConfig.SPLIT_IMPULSE_FACTOR * newCell.mass * 5; // Tune impulse magnitude
             const impulse = Vector.mult(splitDirection, impulseMagnitude); 
             
             if(newCell.body) Body.applyForce(newCell.body, newCell.body.position, impulse);
@@ -275,9 +274,11 @@ class Player {
 
             const ejectedCell = gameInstance.createEjectedMass(ejectStartPos.x, ejectStartPos.y, this.color, null, this.id);
 
-            const velocity = Vector.mult(ejectDirection, GameConfig.EJECTED_MASS_SPEED / 20); 
+            // Give ejected mass initial velocity
+            const velocity = Vector.mult(ejectDirection, GameConfig.EJECTED_MASS_SPEED); // Use configured speed directly 
             if(ejectedCell.body) Body.setVelocity(ejectedCell.body, velocity);
             
+            // Apply slight recoil to player cell (as force)
             if(cell.body) Body.applyForce(cell.body, cell.body.position, Vector.neg(Vector.mult(velocity, ejectedCell.mass / 10))); 
             ejectedCount++;
         });

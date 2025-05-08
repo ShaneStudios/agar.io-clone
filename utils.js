@@ -49,3 +49,8 @@ function getDistance(pos1, pos2) {
     const dy = pos1.y - pos2.y;
     return Math.sqrt(dx * dx + dy * dy);
 }
+
+function calculateSpeed(mass) {
+    // Speed decreases inversely with mass (or radius) - adjust factor for desired effect
+    return GameConfig.CELL_BASE_SPEED / (1 + mass / GameConfig.CELL_SPEED_MASS_FACTOR);
+}

@@ -14,6 +14,9 @@ const GameConfig = {
     PLAYER_MIN_RADIUS_SPLIT: 25,
     PLAYER_MIN_RADIUS_EJECT: 20,
     PLAYER_MAX_CELLS: 16,
+    CELL_BASE_SPEED: 3.5, // Max speed for smallest cells
+    CELL_SPEED_MASS_FACTOR: 400, // Higher = speed decreases slower with mass
+    CELL_FRICTION_AIR: 0.04, // Friction for player cells
     EJECTED_MASS_RADIUS: 6,
     EJECTED_MASS_SPEED: 15,
     EJECTED_MASS_LIFESPAN: 20 * 1000,
