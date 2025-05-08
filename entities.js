@@ -234,17 +234,10 @@ class Player {
                  const direction = Vector.normalise(directionVec);
                  let speed = calculateSpeed(cell.radius); 
                  
-                 // Clamp speed to the maximum allowed speed
                  speed = Math.min(speed, GameConfig.CELL_MAX_SPEED);
 
                  const targetVelocity = Vector.mult(direction, speed);
                  
-                 // Gradually approach target velocity for smoother feel (optional)
-                 // const currentVelocity = cell.body.velocity || {x:0, y:0};
-                 // const lerpedVelocity = Vector.lerp(currentVelocity, targetVelocity, 0.1); // Adjust lerp factor (0.1 = 10% change per step)
-                 // Body.setVelocity(cell.body, lerpedVelocity); 
-
-                 // Or set directly for more responsive control
                  Body.setVelocity(cell.body, targetVelocity); 
             }
         });
@@ -451,6 +444,10 @@ class Player {
 
     static fromPlainObject(obj, engine, gameInstance) {
         let player = gameInstance.players.get(obj.id);
+        
+        // Ensure obj.cells exists and is an array before proceeding
+        const cellsData = Array.isArray(obj.cells) ? obj.cells : [];
+
         if (!player) {
             player = new Player(obj.id, obj.name, obj.color, engine, false, obj.isBot, obj.isPythonBot); 
             gameInstance.players.set(obj.id, player);
@@ -465,13 +462,13 @@ class Player {
         }
     
         const existingCellIds = new Set(player.cells.map(c => c.id));
-        const incomingCellIds = new Set(obj.cells.map(cData => cData.id));
+        const incomingCellIds = new Set(cellsData.map(cData => cData.id));
     
         player.cells.filter(cell => !incomingCellIds.has(cell.id)).forEach(cellToRemove => {
             player.removeCell(cellToRemove);
         });
     
-        obj.cells.forEach(cellData => {
+        cellsData.forEach(cellData => {
             let cell = player.cells.find(c => c.id === cellData.id);
             const cellRadius = massToRadius(cellData.mass);
             if (cell) {

@@ -80,7 +80,7 @@ class Game {
                 await this.cleanupStaleData();
             } catch (error) {
                 console.error("Multiplayer Initialization Error:", error);
-                alert(`Failed to start multiplayer game: ${error.message}. Falling back to Single Player.`);
+                alert(`Failed to start multiplayer game: ${error.message || 'Unknown error'}. Falling back to Single Player.`); // Display error message
                 this.mode = 'singleplayer';
                 await this.initSinglePlayer(playerName);
                  this.leaderboardUpdateInterval = setInterval(() => this.updateLeaderboard(), GameConfig.LEADERBOARD_UPDATE_INTERVAL);
@@ -94,12 +94,15 @@ class Game {
             }
         }
 
-        Runner.run(this.runner, this.engine);
-        this.gameLoop();
+        // Only start game loop if initialization didn't fall back unexpectedly or error out before this point
+        if (this.gameRunning) { 
+            Runner.run(this.runner, this.engine);
+            this.gameLoop();
 
-        document.getElementById('gameArea').style.display = 'block';
-        document.getElementById('startMenu').style.display = 'none';
-        document.getElementById('gameOverScreen').style.display = 'none';
+            document.getElementById('gameArea').style.display = 'block';
+            document.getElementById('startMenu').style.display = 'none';
+            document.getElementById('gameOverScreen').style.display = 'none';
+        }
     }
 
     async checkPythonBackend() {
@@ -194,7 +197,8 @@ class Game {
 
 
     async initMultiplayer(playerName) {
-        const userId = (await this.supabase.auth.getUser())?.data?.user?.id; 
+        const userResp = await this.supabase.auth.getUser();
+        const userId = userResp?.data?.user?.id; 
         const localPlayerId = userId || generateUniqueId('guest_');
 
         this.localPlayer = new Player(localPlayerId, playerName, getRandomColor(), this.engine, true, false);
@@ -202,7 +206,7 @@ class Game {
         this.localPlayer.addCell(startPos.x, startPos.y, GameConfig.PLAYER_INITIAL_RADIUS);
         this.players.set(localPlayerId, this.localPlayer);
 
-        await this.sendInitialPlayerData();
+        await this.sendInitialPlayerData(); // Send data *before* fetching others
         await this.fetchInitialMultiplayerState();
         this.subscribeToChanges();
     }
@@ -215,10 +219,15 @@ class Game {
             name: this.localPlayer.name,
             color: this.localPlayer.color,
             max_size_achieved: this.localPlayer.maxSizeAchieved,
-            cell_data: { cells: playerData.cells, target: playerData.target, totalMass: playerData.totalMass },
+            cell_data: { 
+                cells: playerData.cells, 
+                target: playerData.target, 
+                totalMass: playerData.totalMass 
+            },
             last_seen: new Date().toISOString()
         };
-        const { error } = await this.supabase.from('players').upsert(payload, { onConflict: 'id' });
+        // Use upsert for the initial send in case the player record already exists (e.g., reconnect)
+        const { error } = await this.supabase.from('players').upsert(payload, { onConflict: 'id' }); 
         if (error) {
             console.error("Error sending initial player data:", error);
             throw new Error(`Supabase player upsert failed: ${error.message}`);
@@ -278,18 +287,28 @@ class Game {
                 if (cellB.isEjectedMass && cellB.ownerId === playerA.id && (Date.now() - cellB.creationTime < GameConfig.EJECT_SELF_COLLISION_COOLDOWN)) {
                     return;
                 }
-                if (cellA.radius > cellB.radius * 0.8) {
+                // Make sure the colliding cell still exists (hasn't been eaten in same tick)
+                if (cellA.body && cellB.body && cellA.radius > cellB.radius * 0.8) { 
                      this.handleEatFoodLike(playerA, cellA, cellB);
                 }
             }
             else if (playerA && playerB && playerA.id !== playerB.id && !cellA.isVirus && !cellB.isVirus) {
-                this.handlePlayerCellVsPlayerCell(playerA, cellA, playerB, cellB, pair);
+                 // Make sure both cells still exist before processing collision
+                 if (cellA.body && cellB.body) {
+                    this.handlePlayerCellVsPlayerCell(playerA, cellA, playerB, cellB, pair);
+                 }
             }
             else if (playerA && playerB && playerA.id === playerB.id && !cellA.isVirus && !cellB.isVirus && cellA.id !== cellB.id) {
-                this.handleOwnCellCollision(playerA, cellA, cellB, pair);
+                 // Make sure both cells still exist before processing collision
+                if (cellA.body && cellB.body) {
+                    this.handleOwnCellCollision(playerA, cellA, cellB, pair);
+                }
             }
             else if (playerA && !cellA.isVirus && cellB.isVirus) {
-                this.handlePlayerCellVsVirus(playerA, cellA, cellB, pair);
+                 // Make sure both cells still exist before processing collision
+                 if (cellA.body && cellB.body) {
+                    this.handlePlayerCellVsVirus(playerA, cellA, cellB, pair);
+                 }
             }
         } catch (e) {
             console.error("Error during collision handling:", e, cellA, cellB);
@@ -297,7 +316,10 @@ class Game {
     }
     
     handleEatFoodLike(player, eatingPlayerCell, foodLikeCell) {
-        if (!player || player.cells.length === 0 || !eatingPlayerCell || !eatingPlayerCell.body) return;
+        if (!player || player.cells.length === 0 || !eatingPlayerCell || !eatingPlayerCell.body || !foodLikeCell || !foodLikeCell.body) return;
+
+        // Immediately disable further collisions for the food item
+        Body.set(foodLikeCell.body, 'collisionFilter', { group: -1, category: 0, mask: 0 }); // Make it non-collidable
 
         eatingPlayerCell.updateMass(eatingPlayerCell.mass + foodLikeCell.mass);
         player.updateTotalMass();
@@ -310,7 +332,10 @@ class Game {
                 if (error) console.error(`Error deleting consumed ${foodLikeCell.label} from DB:`, foodLikeId, error.message);
             });
         } else if (this.mode === 'singleplayer' && foodLikeCell.isFood) {
-            this.spawnFoodPellet(true);
+            // Respawn food a bit later to avoid instant respawn if player stays
+            setTimeout(() => {
+                if(this.gameRunning) this.spawnFoodPellet(true);
+            }, 100); 
         }
     }
 
@@ -325,10 +350,14 @@ class Game {
         const canBEatA = radiusB > radiusA * 1.1 && dist < radiusB - radiusA * 0.5;
 
         if (canAEatB) {
+            // Make cellB non-collidable immediately
+            Body.set(cellB.body, 'collisionFilter', { group: -1, category: 0, mask: 0 }); 
             cellA.updateMass(cellA.mass + cellB.mass);
             playerA.updateTotalMass();
             playerB.removeCell(cellB); 
         } else if (canBEatA) {
+            // Make cellA non-collidable immediately
+            Body.set(cellA.body, 'collisionFilter', { group: -1, category: 0, mask: 0 });
             cellB.updateMass(cellB.mass + cellA.mass);
             playerB.updateTotalMass();
             playerA.removeCell(cellA); 
@@ -345,6 +374,9 @@ class Game {
         if (dist < combinedRadius * 0.75) {
             const [smallerCell, largerCell] = cellA.mass < cellB.mass ? [cellA, cellB] : [cellB, cellA];
             
+            // Make smaller cell non-collidable immediately
+            if(smallerCell.body) Body.set(smallerCell.body, 'collisionFilter', { group: -1, category: 0, mask: 0 }); 
+
             largerCell.updateMass(largerCell.mass + smallerCell.mass);
             player.removeCell(smallerCell); 
             if(largerCell && largerCell.body) { 
@@ -356,15 +388,22 @@ class Game {
 
     handlePlayerCellVsVirus(player, playerCell, virusCell, pair) {
         if (playerCell.radius < virusCell.radius * 0.9) return;
-        if (!virusCell?.body?.position) return; 
+        if (!virusCell?.body?.position || !playerCell?.body) return; 
+
+        // Make playerCell non-collidable immediately before removing
+        Body.set(playerCell.body, 'collisionFilter', { group: -1, category: 0, mask: 0 }); 
 
         const numSplits = Math.min(GameConfig.PLAYER_MAX_CELLS - player.cells.length + 1,
                                    Math.min(7, Math.floor(playerCell.mass / radiusToMass(GameConfig.PLAYER_INITIAL_RADIUS / 2))));
-        if (numSplits <= 1) return;
+        if (numSplits <= 1) {
+            player.removeCell(playerCell); // Still remove if can't split
+            return;
+        }
 
         const originalMass = playerCell.mass;
         const massPerSplit = originalMass / numSplits;
         const radiusPerSplit = massToRadius(massPerSplit);
+        const originalPosition = {...playerCell.body.position}; // Store position before removing
 
         player.removeCell(playerCell); 
 
@@ -372,9 +411,10 @@ class Game {
             if (!this.players.has(player.id)) break; 
 
             const angle = (i / numSplits) * 2 * Math.PI + (Math.random() - 0.5) * 0.5;
-            const offset = virusCell.radius * 0.5 + radiusPerSplit;
-            const newX = virusCell.body.position.x + Math.cos(angle) * offset;
-            const newY = virusCell.body.position.y + Math.sin(angle) * offset;
+             // Spawn new cells slightly offset from original cell's position, not virus's
+            const offset = radiusPerSplit * 0.5; 
+            const newX = originalPosition.x + Math.cos(angle) * offset;
+            const newY = originalPosition.y + Math.sin(angle) * offset;
             
             const newSplitCell = player.addCell(newX, newY, radiusPerSplit);
             newSplitCell.lastSplitTime = Date.now();
@@ -396,7 +436,10 @@ class Game {
             });
             this.attemptObjectSpawnsMP('virus');
         } else {
-            this.spawnVirus(true);
+             // Respawn virus slightly delayed
+             setTimeout(() => {
+                 if(this.gameRunning) this.spawnVirus(true);
+             }, 500);
         }
     }
     
@@ -496,25 +539,28 @@ class Game {
         const scaledGridSize = gridSize * this.camera.zoom;
         if (scaledGridSize < 4) return; 
         
-        const screenOffsetX = (this.canvas.width / 2) - (this.camera.x * this.camera.zoom);
-        const screenOffsetY = (this.canvas.height / 2) - (this.camera.y * this.camera.zoom);
+        // Calculate world coordinates of the view boundaries
+        const viewLeft = this.camera.x - (this.canvas.width / 2) / this.camera.zoom;
+        const viewTop = this.camera.y - (this.canvas.height / 2) / this.camera.zoom;
+        const viewRight = this.camera.x + (this.canvas.width / 2) / this.camera.zoom;
+        const viewBottom = this.camera.y + (this.canvas.height / 2) / this.camera.zoom;
 
-        const startX = Math.floor(-screenOffsetX / scaledGridSize) * gridSize;
-        const startY = Math.floor(-screenOffsetY / scaledGridSize) * gridSize;
-
-        const linesX = Math.ceil(this.canvas.width / scaledGridSize) + 2; 
-        const linesY = Math.ceil(this.canvas.height / scaledGridSize) + 2;
+        // Calculate starting grid lines in world coordinates
+        const startGridX = Math.floor(viewLeft / gridSize) * gridSize;
+        const startGridY = Math.floor(viewTop / gridSize) * gridSize;
 
         this.ctx.beginPath(); 
-        for (let i = -1; i <= linesX; i++) {
-            const x = screenOffsetX + (startX + i * gridSize) * this.camera.zoom;
-            this.ctx.moveTo(Math.round(x) + 0.5, 0); 
-            this.ctx.lineTo(Math.round(x) + 0.5, this.canvas.height);
+        // Draw vertical lines
+        for (let x = startGridX; x < viewRight; x += gridSize) {
+             const screenX = (x - this.camera.x) * this.camera.zoom + this.canvas.width / 2;
+             this.ctx.moveTo(Math.round(screenX) + 0.5, 0); 
+             this.ctx.lineTo(Math.round(screenX) + 0.5, this.canvas.height);
         }
-        for (let i = -1; i <= linesY; i++) {
-            const y = screenOffsetY + (startY + i * gridSize) * this.camera.zoom;
-            this.ctx.moveTo(0, Math.round(y) + 0.5);
-            this.ctx.lineTo(this.canvas.width, Math.round(y) + 0.5);
+        // Draw horizontal lines
+        for (let y = startGridY; y < viewBottom; y += gridSize) {
+            const screenY = (y - this.camera.y) * this.camera.zoom + this.canvas.height / 2;
+            this.ctx.moveTo(0, Math.round(screenY) + 0.5);
+            this.ctx.lineTo(this.canvas.width, Math.round(screenY) + 0.5);
         }
         this.ctx.stroke();
     }
@@ -523,12 +569,8 @@ class Game {
         this.ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
         this.ctx.lineWidth = Math.max(2, 5 * this.camera.zoom);
         
-        const screenWorldX = (0 - this.camera.x) * this.camera.zoom + this.canvas.width / 2;
-        const screenWorldY = (0 - this.camera.y) * this.camera.zoom + this.canvas.height / 2;
-        const screenWorldWidth = GameConfig.WORLD_WIDTH * this.camera.zoom;
-        const screenWorldHeight = GameConfig.WORLD_HEIGHT * this.camera.zoom;
-
-        this.ctx.strokeRect(screenWorldX, screenWorldY, screenWorldWidth, screenWorldHeight);
+        // Use world coordinates directly within the transformed context
+        this.ctx.strokeRect(0, 0, GameConfig.WORLD_WIDTH, GameConfig.WORLD_HEIGHT); 
     }
 
     render() {
@@ -785,7 +827,12 @@ class Game {
         }
         if (playersData) {
             playersData.forEach(pData => {
-                if (!pData.cell_data) { console.warn("Player data missing cell_data:", pData.id); return; }
+                // Add check for pData.cell_data before accessing .cells
+                if (!pData.cell_data || !Array.isArray(pData.cell_data.cells)) { 
+                    console.warn("Player data missing or invalid cell_data.cells:", pData.id); 
+                    // Optionally assign default values if needed, or just skip this player
+                    pData.cell_data = { cells: [], target: {x:0, y:0}, totalMass: 0 }; 
+                }
                  Player.fromPlainObject(pData, this.engine, this);
             });
         }
@@ -808,7 +855,11 @@ class Game {
             if (!recordId || (this.localPlayer && recordId === this.localPlayer.id) ) return; 
 
             if (eventType === 'INSERT' || eventType === 'UPDATE') {
-                if (!newRecord.cell_data) { console.warn("Received player update missing cell_data:", recordId); return; }
+                // Add check for newRecord.cell_data before accessing .cells
+                if (!newRecord.cell_data || !Array.isArray(newRecord.cell_data.cells)) { 
+                    console.warn("Received player update missing or invalid cell_data.cells:", recordId); 
+                    return; 
+                }
                 Player.fromPlainObject(newRecord, this.engine, this); 
             } else if (eventType === 'DELETE') {
                 const playerToRemove = this.players.get(recordId);
