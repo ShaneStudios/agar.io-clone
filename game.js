@@ -15,7 +15,7 @@ class Game {
         this.food = new Map();
         this.viruses = new Map();
         this.ejectedMass = new Map();
-        this.bodiesToRemove = new Set(); // Queue for deferred removal
+        this.bodiesToRemove = new Set(); 
 
         this.localPlayer = null;
         this.mouseWorldPos = { x: 0, y: 0 };
@@ -62,7 +62,7 @@ class Game {
 
     async init(playerName) {
         this.gameRunning = true;
-        this.setupMatterEvents(); // Setup events including afterUpdate
+        this.setupMatterEvents(); 
         this.initControls();
 
         if (this.mode === 'multiplayer') {
@@ -245,22 +245,19 @@ class Game {
                 if (pair.bodyB.cellInstance) pair.bodyB.cellInstance.collidingWith = null;
             });
         });
-        // Add the afterUpdate listener for deferred removal
         Events.on(this.engine, 'afterUpdate', () => {
-            if (!this.gameRunning) return; // Ensure game is running
+            if (!this.gameRunning) return; 
             if (this.bodiesToRemove.size > 0) {
                 this.bodiesToRemove.forEach(body => {
-                    // Check if body still exists and is part of the world before removing
                     if (body && body.world) { 
                        Composite.remove(this.engine.world, body, true);
                     }
                 });
-                this.bodiesToRemove.clear(); // Clear the queue
+                this.bodiesToRemove.clear(); 
             }
         });
     }
 
-    // New method to queue body removals safely
     queueBodyRemoval(body) {
         if (body) {
             this.bodiesToRemove.add(body);
@@ -306,7 +303,7 @@ class Game {
         player.updateTotalMass();
         
         const foodLikeId = foodLikeCell.id;
-        this.removeFoodLike(foodLikeCell); // This queues the body removal
+        this.removeFoodLike(foodLikeCell); 
 
         if (this.mode === 'multiplayer' && this.supabase) {
             this.supabase.from('game_objects').delete().eq('id', foodLikeId).then(({error}) => {
@@ -330,11 +327,11 @@ class Game {
         if (canAEatB) {
             cellA.updateMass(cellA.mass + cellB.mass);
             playerA.updateTotalMass();
-            playerB.removeCell(cellB); // Queues cellB removal
+            playerB.removeCell(cellB); 
         } else if (canBEatA) {
             cellB.updateMass(cellB.mass + cellA.mass);
             playerB.updateTotalMass();
-            playerA.removeCell(cellA); // Queues cellA removal
+            playerA.removeCell(cellA); 
         }
     }
     
@@ -349,7 +346,7 @@ class Game {
             const [smallerCell, largerCell] = cellA.mass < cellB.mass ? [cellA, cellB] : [cellB, cellA];
             
             largerCell.updateMass(largerCell.mass + smallerCell.mass);
-            player.removeCell(smallerCell); // Queues smallerCell removal
+            player.removeCell(smallerCell); 
             if(largerCell && largerCell.body) { 
                  largerCell.setMergeCooldown();
             }
@@ -369,7 +366,7 @@ class Game {
         const massPerSplit = originalMass / numSplits;
         const radiusPerSplit = massToRadius(massPerSplit);
 
-        player.removeCell(playerCell); // Queues removal
+        player.removeCell(playerCell); 
 
         for (let i = 0; i < numSplits; i++) {
             if (!this.players.has(player.id)) break; 
@@ -392,7 +389,7 @@ class Game {
         }
 
         const virusId = virusCell.id;
-        this.removeFoodLike(virusCell); // Queues removal
+        this.removeFoodLike(virusCell); 
         if (this.mode === 'multiplayer' && this.supabase) {
             this.supabase.from('game_objects').delete().eq('id', virusId).then(({error}) => {
                  if (error) console.error(`Error deleting consumed virus ${virusId} from DB:`, error.message);
@@ -413,7 +410,7 @@ class Game {
         else if (foodLikeCell.isEjectedMass && this.ejectedMass.has(id)) mapToRemoveFrom = this.ejectedMass;
         
         if(mapToRemoveFrom) mapToRemoveFrom.delete(id);
-        foodLikeCell.destroy(this.engine); // This now queues the removal
+        foodLikeCell.destroy(this.engine); 
     }
 
     initControls() {
@@ -444,7 +441,6 @@ class Game {
             if (!this.localPlayer || !this.gameRunning) return;
             if (this.localPlayer.cells.length === 0) return; 
             const playerCoM = this.localPlayer.getCenterOfMass();
-            // Prevent mouseWorldPos calculation if camera zoom is zero or invalid
             if (this.camera.zoom <= 0) return; 
             this.mouseWorldPos.x = playerCoM.x + (mousePosition.x - this.canvas.width / 2) / this.camera.zoom;
             this.mouseWorldPos.y = playerCoM.y + (mousePosition.y - this.canvas.height / 2) / this.camera.zoom;
@@ -480,7 +476,6 @@ class Game {
             
             const bb = this.localPlayer.getBoundingBox();
             const viewDiameter = Math.max(bb.width, bb.height, GameConfig.CAMERA_ZOOM_BASE_VIEW / 2);
-            // Ensure viewDiameter is positive before division
             targetZoomVal = Math.min(this.canvas.width / (viewDiameter > 0 ? viewDiameter + 100 : 100), this.canvas.height / (viewDiameter > 0 ? viewDiameter + 100 : 100));
         }
         
@@ -571,7 +566,7 @@ class Game {
 
             if (screenX + screenRadius < -10 || screenX - screenRadius > this.canvas.width + 10 ||
                 screenY + screenRadius < -10 || screenY - screenRadius > this.canvas.height + 10) {
-                return; // Basic view culling with buffer
+                return; 
             }
 
             this.ctx.beginPath();
@@ -626,9 +621,6 @@ class Game {
             this.updateDebugInfo();
         } catch (error) {
             console.error("Error in game loop:", error);
-            // Optionally stop the game or show an error message
-            // this.stopGame(); 
-            // alert("An error occurred in the game loop. Please check the console.");
         }
 
         requestAnimationFrame(() => this.gameLoop());
@@ -730,7 +722,6 @@ class Game {
             this.supabaseRealtimeChannelGameObjects = null;
         }
 
-        // Process any remaining removals before clearing world
         if (this.bodiesToRemove?.size > 0) {
             this.bodiesToRemove.forEach(body => {
                  if (body && body.world) { 
@@ -739,7 +730,6 @@ class Game {
             });
             this.bodiesToRemove.clear();
         }
-
 
         if (this.engine) {
             World.clear(this.world, false);
@@ -979,7 +969,7 @@ class Game {
         const mass = new Cell(x, y, GameConfig.EJECTED_MASS_RADIUS, color, this.engine, {
             id: massId, isEjectedMass: true, ownerId: ownerId,
             bodyOptions: { 
-                frictionAir: 0.02, 
+                frictionAir: GameConfig.EJECTED_MASS_FRICTION_AIR, 
                 collisionFilter: { category: 0x0008, mask: 0x0001 | 0x0004 } 
             }
         });
