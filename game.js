@@ -1,6 +1,7 @@
 class Game {
     constructor(mode = 'singleplayer') {
         this.mode = mode;
+        // NO require('poly-decomp') HERE
         this.engine = Engine.create({ 
             gravity: { x: 0, y: 0 },
             timing: { timeScale: 1 },
