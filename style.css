@@ -1,0 +1,116 @@
+body, html {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+    font-family: 'Arial', sans-serif;
+    background-color: #333;
+    color: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+
+#startMenu, #gameOverScreen {
+    background-color: rgba(0,0,0,0.7);
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    z-index: 100;
+}
+
+#startMenu input[type="text"] {
+    padding: 10px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    border: 1px solid #555;
+    background-color: #444;
+    color: #fff;
+    width: 80%;
+    max-width: 250px;
+    font-size: 1em;
+}
+
+#startMenu button, #gameOverScreen button {
+    padding: 12px 25px;
+    margin: 8px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 1.1em;
+    background-color: #007bff;
+    color: white;
+    transition: background-color 0.2s;
+}
+
+#startMenu button:hover, #gameOverScreen button:hover {
+    background-color: #0056b3;
+}
+
+#gameArea {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+#gameCanvas {
+    display: block;
+    background-color: #1a1a1a;
+}
+
+#leaderboard {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background-color: rgba(0, 0, 0, 0.6);
+    padding: 10px 15px;
+    border-radius: 8px;
+    min-width: 200px;
+    max-height: 300px;
+    overflow-y: auto;
+    text-align: left;
+    box-shadow: 0 0 10px rgba(0,0,0,0.3);
+    z-index: 10;
+}
+
+#leaderboard h2 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 1.2em;
+    color: #00aaff;
+}
+
+#leaderboard ol {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#leaderboard li {
+    padding: 3px 0;
+    border-bottom: 1px solid #444;
+    font-size: 0.9em;
+}
+#leaderboard li:last-child {
+    border-bottom: none;
+}
+#leaderboard .local-player-entry {
+    font-weight: bold;
+    color: #ffdd00;
+}
+
+#statsDisplay p {
+    margin: 5px 0;
+    font-size: 0.9em;
+    color: #ccc;
+}
+#statsDisplay #localMaxMass {
+    font-weight: bold;
+    color: #fff;
+}
+
+#gameOverScreen h1 {
+    color: #ff4444;
+}
